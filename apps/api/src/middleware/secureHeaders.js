@@ -21,4 +21,4 @@ function secureHeaders(options = {}) {
   };
 }
 
-module.exports = secureHeaders;
+export default secureHeaders;
