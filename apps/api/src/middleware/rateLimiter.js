@@ -1,3 +1,5 @@
+import { performance } from 'node:perf_hooks';
+
 const rateLimiter = (options = {}) => {
   const windowMs = options.windowMs || 60 * 1000; // 1 minute default
   const max = options.max || 100; // 100 requests per window
@@ -6,7 +8,7 @@ const rateLimiter = (options = {}) => {
   const store = new Map();
 
   const cleanup = () => {
-    const now = Date.now();
+    const now = performance.now();
     for (const [key, timestamps] of store.entries()) {
       const valid = timestamps.filter(t => now - t < windowMs);
       if (valid.length === 0) {
@@ -24,7 +26,7 @@ const rateLimiter = (options = {}) => {
 
   const middleware = (req, res, next) => {
     const ip = req.ip || req.connection?.remoteAddress || 'unknown';
-    const now = Date.now();
+    const now = performance.now();
     let timestamps = store.get(ip) || [];
     timestamps = timestamps.filter(t => now - t < windowMs);
 
@@ -34,7 +36,7 @@ const rateLimiter = (options = {}) => {
       res.setHeader('Retry-After', resetTime > 0 ? resetTime : 1);
       res.setHeader('X-RateLimit-Limit', max);
       res.setHeader('X-RateLimit-Remaining', 0);
-      res.setHeader('X-RateLimit-Reset', Math.ceil((oldest + windowMs) / 1000));
+      res.setHeader('X-RateLimit-Reset', Math.ceil((Date.now() + oldest + windowMs - now) / 1000));
       return res.status(statusCode).json(typeof message === 'function' ? message(req, res) : message);
     }
 
@@ -43,7 +45,7 @@ const rateLimiter = (options = {}) => {
 
     res.setHeader('X-RateLimit-Limit', max);
     res.setHeader('X-RateLimit-Remaining', Math.max(0, max - timestamps.length));
-    res.setHeader('X-RateLimit-Reset', Math.ceil((now + windowMs) / 1000));
+    res.setHeader('X-RateLimit-Reset', Math.ceil((Date.now() + timestamps[0] + windowMs - now) / 1000));
 
     if (next) {
       next();
@@ -61,4 +63,4 @@ const rateLimiter = (options = {}) => {
   return middleware;
 };
 
-module.exports = rateLimiter;
+export default rateLimiter;
