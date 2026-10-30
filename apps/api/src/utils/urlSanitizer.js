@@ -1,3 +1,5 @@
+import { isIP } from "node:net";
+
 /**
  * Defensive URL sanitization and SSRF prevention utility.
  */
@@ -14,7 +16,7 @@ const DANGEROUS_PROTOCOLS = new Set([
 const ALLOWED_PROTOCOLS = new Set(["http:", "https:"]);
 
 /**
- * Checks whether an IP or hostname resolves to internal/private/loopback ranges.
+ * Checks literal IP ranges and local hostname suffixes; does not resolve DNS.
  * @param {string} hostname
  * @returns {boolean}
  */
@@ -24,9 +26,9 @@ export function isPrivateHostname(hostname) {
   const lower = hostname.toLowerCase().trim();
 
   // Strip IPv6 brackets
-  const cleanHost = lower.startsWith("[") && lower.endsWith("]")
+  const cleanHost = (lower.startsWith("[") && lower.endsWith("]")
     ? lower.slice(1, -1)
-    : lower;
+    : lower).replace(/\.$/, "");
 
   if (
     cleanHost === "localhost" ||
@@ -70,15 +72,27 @@ export function isPrivateHostname(hostname) {
   }
 
   // IPv6 checks (fc00::/7 unique local, fe80::/10 link-local)
-  if (cleanHost.startsWith("fc") || cleanHost.startsWith("fd") || cleanHost.startsWith("fe80")) {
-    return true;
+  if (isIP(cleanHost) === 6) {
+    const first = parseInt(cleanHost.split(":")[0] || "0", 16);
+    if ((first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80) return true;
+    // URL canonicalizes mapped IPv4 addresses to hexadecimal IPv6 groups.
+    const mapped = cleanHost.match(/^::ffff:([a-f0-9]{1,4}):([a-f0-9]{1,4})$/);
+    if (mapped) {
+      const high = parseInt(mapped[1], 16);
+      const low = parseInt(mapped[2], 16);
+      return isPrivateHostname(`${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`);
+    }
+    const dotted = cleanHost.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+    if (dotted) return isPrivateHostname(dotted[1]);
   }
 
   return false;
 }
 
 /**
- * Validates whether a given URL is safe for external display and outgoing requests.
+ * Validates URL syntax, protocols, literal addresses and local hostname suffixes.
+ * Outgoing requests must also validate resolved addresses and every redirect;
+ * this synchronous helper alone does not prevent DNS rebinding or open redirects.
  * @param {string} urlString
  * @param {Object} [options]
  * @param {boolean} [options.allowPrivate=false] - Whether to allow private hostnames
@@ -90,6 +104,7 @@ export function isSafeUrl(urlString, options = {}) {
     return false;
   }
 
+  if (/[\r\n\0]/.test(urlString)) return false;
   const trimmed = urlString.trim();
 
   // Fast rejection of dangerous protocol prefixes

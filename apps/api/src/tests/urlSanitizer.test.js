@@ -38,3 +38,22 @@ test("malformed URLs and null inputs return fallback safely", () => {
   assert.equal(isSafeUrl("not a valid url"), false);
   assert.equal(sanitizeUrl("invalid", null), null);
 });
+
+test("IPv6 mapped loopback, private and link-local addresses are rejected", () => {
+  for (const host of ["::ffff:127.0.0.1", "::ffff:10.0.0.1", "::ffff:169.254.169.254", "febf::1"]) {
+    assert.equal(isSafeUrl(`http://[${host}]/`), false, host);
+  }
+  assert.equal(isSafeUrl("https://[::ffff:8.8.8.8]/"), true);
+});
+
+test("ordinary public domain prefixes are not confused with IPv6 ranges", () => {
+  for (const host of ["fdocs.example.com", "fc-example.com", "fe80.example.com"]) {
+    assert.equal(isSafeUrl(`https://${host}/`), true, host);
+  }
+  assert.equal(isSafeUrl("http://localhost./"), false);
+});
+
+test("leading and trailing CRLF are rejected before whitespace normalization", () => {
+  assert.equal(isSafeUrl("\r\nhttps://example.com"), false);
+  assert.equal(isSafeUrl("https://example.com\n"), false);
+});
