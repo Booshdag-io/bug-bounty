@@ -27,4 +27,4 @@ function sanitizeHtml(input) {
   return sanitized;
 }
 
-module.exports = { sanitizeHtml };
+export { sanitizeHtml };
